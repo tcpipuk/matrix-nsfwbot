@@ -1,0 +1,13 @@
+maubot: 0.1.0
+id: uk.tcpip.nsfwbot
+version: 0.1.0
+license: AGPL-3.0-or-later
+modules:
+    - nsfwbot
+main_class: NSFWModelPlugin
+config: true
+extra_files:
+    - base-config.yaml
+dependencies:
+    - beautifulsoup4
+    - nsfwdetection
