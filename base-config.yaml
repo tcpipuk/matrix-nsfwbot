@@ -1,6 +1,13 @@
 # Maximum concurrent image processing jobs allowed
 max_concurrent_jobs: 1
-
 # Via servers to use in matrix.to URLs
 via_servers:
     - matrix.org
+# Actions to take when bot is triggered
+actions:
+    # Ignore images that pass the test
+    ignore_sfw: true
+    # Reply directly to messages with their image score
+    direct_reply: false
+    # Set to a room ID/alias to report to another room
+    report_to_room: false

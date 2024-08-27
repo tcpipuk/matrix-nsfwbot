@@ -73,7 +73,7 @@ class NSFWModelPlugin(Plugin):
         # Prepare the response message
         response = self.format_response(results, matrix_to_url)
         # Send responses based on actions
-        await self.send_responses(evt, response)
+        await self.send_responses(evt, response, results)
 
     @command.passive(
         '^<img src="mxc://.+/.+"',
@@ -94,7 +94,7 @@ class NSFWModelPlugin(Plugin):
             # Prepare the response message
             response = self.format_response(all_results, matrix_to_url)
             # Send responses based on actions
-            await self.send_responses(evt, response)
+            await self.send_responses(evt, response, all_results)
 
     async def process_images(self, mxc_urls: List[ContentURI]) -> dict:
         """Download and process the images using the NSFW model."""
@@ -148,13 +148,20 @@ class NSFWModelPlugin(Plugin):
         else:
             return "\n".join(response_parts)
 
-    async def send_responses(self, evt: MessageEvent, response: str) -> None:
-        """Send responses based on configured actions."""
+    async def send_responses(self, evt: MessageEvent, response: str, results: dict) -> None:
+        """Send responses based on configured actions, respecting ignore_sfw option."""
+        # Check if we should ignore SFW images
+        ignore_sfw = self.actions.get("ignore_sfw", False)
+        nsfw_results = [res for res in results.values() if res["Label"] == "NSFW"]
+        # If all images were SFW and should be ignored
+        if ignore_sfw and not nsfw_results:
+            return
+
         # Direct reply in the same room
         if self.actions.get("direct_reply", False):
             await evt.respond(response)
 
         # Report to a specific room
         report_room_id = self.actions.get("report_to_room", False)
-        if report_room_id and isinstance(report_room_id, str):
-            await self.client.send_text(RoomID(report_room_id), response)
+        if report_room_id:
+            await self.client.send_text(report_room_id, response)
