@@ -161,7 +161,7 @@ class NSFWModelPlugin(Plugin):
 
         # Direct reply in the same room
         if self.actions.get("direct_reply", False):
-            await evt.reply(TextMessageEventContent(msgtype=MessageType.NOTICE, body=response))
+            await evt.reply(response)
             self.log.info(f"Replied to {evt.room_id}")
 
         # Report to a specific room
