@@ -156,16 +156,19 @@ class NSFWModelPlugin(Plugin):
         nsfw_results = [res for res in results.values() if res["Label"] == "NSFW"]
         # If all images were SFW and should be ignored
         if ignore_sfw and not nsfw_results:
+            self.log.info(f"Ignored SFW images in {evt.room_id}")
             return
 
         # Direct reply in the same room
         if self.actions.get("direct_reply", False):
-            await evt.respond(response, reply=True)
+            await evt.reply(TextMessageEventContent(msgtype=MessageType.NOTICE, body=response))
+            self.log.info(f"Replied to {evt.room_id}")
 
         # Report to a specific room
         report_room_id = self.actions.get("report_to_room", "")
         if report_room_id:
-            await self.client.send_text(report_room_id, response)
+            await self.client.send_text(room_id=RoomID(report_room_id), text=response)
+            self.log.info(f"Sent report to {report_room_id}")
 
         # Redact the message if it's NSFW and redacting is enabled
         redact_nsfw = self.actions.get("redact_nsfw", False)
