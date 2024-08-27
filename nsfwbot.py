@@ -160,7 +160,7 @@ class NSFWModelPlugin(Plugin):
 
         # Direct reply in the same room
         if self.actions.get("direct_reply", False):
-            await evt.respond(response)
+            await evt.respond(response, reply=True)
 
         # Report to a specific room
         report_room_id = self.actions.get("report_to_room", "")
