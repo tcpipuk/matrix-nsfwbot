@@ -11,7 +11,7 @@ from mautrix.types import (
     TextMessageEventContent,
 )
 from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
-from mautrix.errors import MForbidden
+from mautrix.errors import MBadJSON, MForbidden
 from maubot import Plugin, MessageEvent  # type:ignore
 from maubot.handlers import command
 from nsfw_detector import Model
@@ -34,6 +34,7 @@ class NSFWModelPlugin(Plugin):
     semaphore = Semaphore(1)
     via_servers = []
     actions = {}
+    resolved_report_room_id = None
 
     @classmethod
     def get_config_class(cls) -> Type[BaseProxyConfig]:
@@ -55,8 +56,30 @@ class NSFWModelPlugin(Plugin):
             # Initialise the Semaphore based on the max_concurrent_jobs setting
             max_concurrent_jobs = self.config["max_concurrent_jobs"]
             self.semaphore = Semaphore(max_concurrent_jobs)
+            # Resolve the report room ID if necessary
+            await self.resolve_report_room_id()
             # Initialise the NSFW model
             self.log.info("Loaded nsfwbot successfully")
+
+    async def resolve_report_room_id(self) -> None:
+        """Resolve the report room alias to a room ID if necessary."""
+        report_room_id = self.actions.get("report_to_room", None)
+        if report_room_id:
+            if report_room_id.startswith("#"):
+                try:
+                    room_info = await self.client.resolve_room_alias(report_room_id)
+                    self.resolved_report_room_id = room_info.room_id
+                    self.log.info(
+                        f"Resolved room alias {report_room_id} to ID {self.resolved_report_room_id}"
+                    )
+                except MBadJSON as e:
+                    self.log.warning(f"Failed to resolve room alias {report_room_id}: {e}")
+                    self.resolved_report_room_id = None
+            elif report_room_id.startswith("!"):
+                self.resolved_report_room_id = report_room_id
+            else:
+                self.log.error(f"Invalid room ID or alias: {report_room_id}")
+                self.resolved_report_room_id = None
 
     @command.passive(
         "^mxc://.+/.+$",
@@ -165,10 +188,12 @@ class NSFWModelPlugin(Plugin):
             self.log.info(f"Replied to {evt.room_id}")
 
         # Report to a specific room
-        report_room_id = self.actions.get("report_to_room", "")
-        if report_room_id:
-            await self.client.send_text(room_id=RoomID(report_room_id), text=response)
-            self.log.info(f"Sent report to {report_room_id}")
+        if self.resolved_report_room_id:
+            try:
+                await self.client.send_text(room_id=self.resolved_report_room_id, text=response)
+                self.log.info(f"Sent report to {self.resolved_report_room_id}")
+            except MBadJSON as e:
+                self.log.warning(f"Failed to send message to {self.resolved_report_room_id}: {e}")
 
         # Redact the message if it's NSFW and redacting is enabled
         redact_nsfw = self.actions.get("redact_nsfw", False)
