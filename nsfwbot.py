@@ -11,6 +11,7 @@ from mautrix.types import (
     TextMessageEventContent,
 )
 from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
+from mautrix.errors import MForbidden
 from maubot import Plugin, MessageEvent  # type:ignore
 from maubot.handlers import command
 from nsfw_detector import Model
@@ -39,7 +40,7 @@ class NSFWModelPlugin(Plugin):
         return Config
 
     async def start(self) -> None:
-        """Initializes the plugin by loading the configuration and setting up resources."""
+        """Initialise plugin by loading config and setting up semaphore."""
         await super().start()
         # Check if config exists
         if not isinstance(self.config, Config):
@@ -51,10 +52,10 @@ class NSFWModelPlugin(Plugin):
             self.via_servers = self.config["via_servers"]
             # Load actions from config
             self.actions = self.config["actions"]
-            # Initialize the Semaphore based on the max_concurrent_jobs setting
+            # Initialise the Semaphore based on the max_concurrent_jobs setting
             max_concurrent_jobs = self.config["max_concurrent_jobs"]
             self.semaphore = Semaphore(max_concurrent_jobs)
-            # Initialize the NSFW model
+            # Initialise the NSFW model
             self.log.info("Loaded nsfwbot successfully")
 
     @command.passive(
@@ -149,7 +150,7 @@ class NSFWModelPlugin(Plugin):
             return "\n".join(response_parts)
 
     async def send_responses(self, evt: MessageEvent, response: str, results: dict) -> None:
-        """Send responses based on configured actions, respecting ignore_sfw option."""
+        """Send responses or take actions based on config."""
         # Check if we should ignore SFW images
         ignore_sfw = self.actions.get("ignore_sfw", False)
         nsfw_results = [res for res in results.values() if res["Label"] == "NSFW"]
@@ -165,3 +166,12 @@ class NSFWModelPlugin(Plugin):
         report_room_id = self.actions.get("report_to_room", False)
         if report_room_id:
             await self.client.send_text(report_room_id, response)
+
+        # Redact the message if it's NSFW and redacting is enabled
+        redact_nsfw = self.actions.get("redact_nsfw", False)
+        if nsfw_results and redact_nsfw:
+            try:
+                await self.client.redact(evt.room_id, evt.event_id)
+                self.log.info(f"Redacted NSFW message in {evt.room_id}")
+            except MForbidden:
+                self.log.warning(f"Failed to redact NSFW message in {evt.room_id}")
