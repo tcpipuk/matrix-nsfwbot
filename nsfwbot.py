@@ -171,7 +171,7 @@ class NSFWModelPlugin(Plugin):
         redact_nsfw = self.actions.get("redact_nsfw", False)
         if nsfw_results and redact_nsfw:
             try:
-                await self.client.redact(evt.room_id, evt.event_id)
+                await self.client.redact(room_id=evt.room_id, event_id=evt.event_id, reason="NSFW")
                 self.log.info(f"Redacted NSFW message in {evt.room_id}")
             except MForbidden:
                 self.log.warning(f"Failed to redact NSFW message in {evt.room_id}")
