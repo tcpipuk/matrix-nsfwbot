@@ -163,7 +163,7 @@ class NSFWModelPlugin(Plugin):
             await evt.respond(response)
 
         # Report to a specific room
-        report_room_id = self.actions.get("report_to_room", False)
+        report_room_id = self.actions.get("report_to_room", "")
         if report_room_id:
             await self.client.send_text(report_room_id, response)
 

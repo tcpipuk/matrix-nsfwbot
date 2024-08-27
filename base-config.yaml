@@ -6,10 +6,10 @@ via_servers:
     - matrix.org
 
 # Actions to take when bot is triggered - all are true/false,
-# except report_to_room which should be set to room ID/alias
+# except report_to_room which should be the room ID/alias
 # (in quotes) of the desired room, e.g. '#mods:myserver.local'
 actions:
     ignore_sfw: true
     redact_nsfw: false
     direct_reply: false
-    report_to_room: false
+    report_to_room: ""
