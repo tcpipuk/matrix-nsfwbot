@@ -25,12 +25,14 @@ class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
         helper.copy("max_concurrent_jobs")
         helper.copy("via_servers")
+        helper.copy("actions")
 
 
 class NSFWModelPlugin(Plugin):
     model = Model()
     semaphore = Semaphore(1)
     via_servers = []
+    actions = {}
 
     @classmethod
     def get_config_class(cls) -> Type[BaseProxyConfig]:
@@ -46,9 +48,11 @@ class NSFWModelPlugin(Plugin):
             # Load in config
             self.config.load_and_update()
             # Load via_servers from config, with a default fallback
-            self.via_servers = self.config["via_servers"]  # type:ignore
+            self.via_servers = self.config["via_servers"]
+            # Load actions from config
+            self.actions = self.config["actions"]
             # Initialize the Semaphore based on the max_concurrent_jobs setting
-            max_concurrent_jobs = self.config["max_concurrent_jobs"]  # type:ignore
+            max_concurrent_jobs = self.config["max_concurrent_jobs"]
             self.semaphore = Semaphore(max_concurrent_jobs)
             # Initialize the NSFW model
             self.log.info("Loaded nsfwbot successfully")
@@ -66,9 +70,10 @@ class NSFWModelPlugin(Plugin):
         results = await self.process_images([evt.content.url])
         # Create matrix.to URL for the original message
         matrix_to_url = self.create_matrix_to_url(evt.room_id, evt.event_id)
-        # Prepare and send the response message
+        # Prepare the response message
         response = self.format_response(results, matrix_to_url)
-        await evt.respond(response)
+        # Send responses based on actions
+        await self.send_responses(evt, response)
 
     @command.passive(
         '^<img src="mxc://.+/.+"',
@@ -86,9 +91,10 @@ class NSFWModelPlugin(Plugin):
             all_results = await self.process_images([ContentURI(url) for url in img_urls])
             # Create matrix.to URL for the original message
             matrix_to_url = self.create_matrix_to_url(evt.room_id, evt.event_id)
-            # Prepare and send the response message
+            # Prepare the response message
             response = self.format_response(all_results, matrix_to_url)
-            await evt.respond(response)
+            # Send responses based on actions
+            await self.send_responses(evt, response)
 
     async def process_images(self, mxc_urls: List[ContentURI]) -> dict:
         """Download and process the images using the NSFW model."""
@@ -141,3 +147,14 @@ class NSFWModelPlugin(Plugin):
             return "- " + "\n- ".join(response_parts)
         else:
             return "\n".join(response_parts)
+
+    async def send_responses(self, evt: MessageEvent, response: str) -> None:
+        """Send responses based on configured actions."""
+        # Direct reply in the same room
+        if self.actions.get("direct_reply", False):
+            await evt.respond(response)
+
+        # Report to a specific room
+        report_room_id = self.actions.get("report_to_room", False)
+        if report_room_id and isinstance(report_room_id, str):
+            await self.client.send_text(RoomID(report_room_id), response)
