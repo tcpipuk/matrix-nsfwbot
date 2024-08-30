@@ -1,85 +1,80 @@
 # nsfwbot for Matrix
 
-nsfwbot is a Matrix bot plugin designed to detect NSFW (Not Safe For Work) content in images posted in Matrix chat rooms. This plugin leverages the [nsfwdetection](https://github.com/gsarridis/NSFW-Detection-Pytorch) model to analyze images and return a classification result, indicating whether the content is likely to be NSFW or SFW (Safe For Work).
+`nsfwbot` is a Matrix bot plugin that attempts to detect NSFW (Not Safe For Work) images posted in
+Matrix chat rooms. It uses [nsfwdetection](https://github.com/gsarridis/NSFW-Detection-Pytorch),
+which includes a small model that can run without a GPU with low resource requirements.
 
 ## Features
 
-- **Image Analysis**: Automatically detects images posted in a Matrix chat and analyzes them using the NSFW detection model.
-- **Text Message Parsing**: Parses text messages for embedded `<img>` tags and analyzes those images as well.
-- **Configurable Concurrency**: Controls the number of concurrent image processing tasks using a configurable semaphore.
-- **Customizable `via_servers`**: Allows users to customize the list of servers used in the `matrix.to` URLs for linking back to the original message.
-- **Planned Features**: While the plugin currently only returns a classification of the image content, future updates are planned to include moderation actions such as automatically deleting or flagging unwanted images.
+- **Image Analysis**: Detects and analyses images posted in Matrix chats.
+- **Text Message Parsing**: Analyses images embedded in text messages.
+- **Configurable Concurrency**: Controls concurrent image processing tasks.
+- **Custom Actions**: Configurable actions for detected content, including reporting and redacting messages.
 
 ## Requirements
 
-- **Maubot**: The plugin is designed to run within the Maubot framework.
-- **Python Dependencies**: The plugin relies on the `nsfwdetection` and `beautifulsoup4` Python modules. These are automatically installed by the plugin if they are not already present.
+- **Maubot**: Runs within the Maubot framework.
+- **Python Dependencies**: `nsfwdetection` and `beautifulsoup4`.
+  > **Note**: `nsfwdetection` will not run on Alpine Linux. This means the default Maubot Docker
+  > image will not work. I have built a custom Debian-based Maubot in the
+  > `ghcr.io/tcpipuk/maubot:debian` Docker image.
 
 ## Installation
 
-### 1. Use the Custom Maubot Docker Image
+1. **Use the Custom Maubot Docker Image**:
+   Replace the official Maubot image with a custom Debian-based image:
 
-The `nsfwdetection` plugin does not currently run on Alpine Linux, which is the base image for the official Maubot Docker container. To use `nsfwbot`, you need to switch to a Debian-based container.
+   ```bash
+   docker pull ghcr.io/tcpipuk/maubot:debian
+   ```
 
-- Replace the official Maubot image with a custom Debian-based image:
+2. a. **Install pre-prepared plugin from [repository releases](https://github.com/tcpipuk/matrix-nsfwbot/releases)**
 
-  ```
-  ghcr.io/tcpipuk/maubot:debian
-  ```
-  
-- This custom image is a drop-in replacement for the official Maubot image and comes pre-installed with the `nsfwdetection` and `beautifulsoup4` modules, allowing for faster deployment of `nsfwbot`.
+   b. **Clone the Repository**:
 
-### 2. Clone the Repository
+      ```bash
+      git clone https://github.com/tcpipuk/matrix-nsfwbot
+      ```
 
-Clone the `nsfwbot` plugin repository from GitHub:
+      Zip the plugin files and upload through the Maubot admin interface. Ensure the plugin is
+      configured and enabled.
 
-```bash
-git clone https://github.com/tcpipuk/matrix-nsfwbot
-```
+3. **Configure the Plugin**:
+   See configuration section below for a summary of settings in the Maubot UI.
 
-### 3. Configure the Plugin
+## Configuration
 
-Edit the `base-config.yaml` file to customize the settings according to your needs:
+Edit `base-config.yaml` to set:
 
-- **`via_servers`**: List of servers to include in the `via` parameter for `matrix.to` URLs.
-- **`max_concurrent_jobs`**: Maximum number of concurrent image processing jobs. This controls the Semaphore used to limit concurrency.
-
-### 4. Upload the Plugin to Maubot
-
-Zip the plugin files and upload the plugin through the Maubot administration interface. Ensure that the plugin is configured and enabled.
+- `max_concurrent_jobs`: Number of concurrent jobs to allow.
+- `via_servers`: List of servers for `matrix.to` URLs.
+- `actions`:
+  - `ignore_sfw`: Ignore SFW images (default: `true`).
+  - `redact_nsfw`: Redact NSFW messages (default: `false`).
+  - `direct_reply`: Reply directly in the same room (default: `false`).
+  - `report_to_room`: Room ID for reporting (not enabled by default).
+    > **Note**: This can be a room alias (like `#room:server`) but this is far less efficient,
+      as the bot will need to find the room ID (like `!room:server`) to send messages.
 
 ## Usage
 
-Once installed and configured, `nsfwbot` will automatically analyze images posted in the chat. The plugin replies to the message containing the image with a classification result, indicating whether the image is NSFW or SFW.
+Once installed and configured, `nsfwbot` will automatically analyse images posted in the chat and
+reply with a classification result, e.g.
 
-### Example Output
-
-When an image is detected and analyzed, `nsfwbot` will reply to the message with something like:
-
-```
+```markdown
 mxc://matrix.org/abcd1234 in https://matrix.to/#/!roomid:matrix.org/$eventid?via=matrix.org appears NSFW with score 87.93%
 ```
 
 If multiple images are detected in a text message:
 
-```
+```markdown
 - mxc://matrix.org/abcd1234 in https://matrix.to/#/!roomid:matrix.org/$eventid?via=matrix.org appears SFW with score 2.45%
 - mxc://matrix.org/efgh5678 in https://matrix.to/#/!roomid:matrix.org/$eventid?via=matrix.org appears NSFW with score 94.82%
 ```
 
-## Planned Features
-
-- **Automatic Moderation**: The ability to automatically take action (e.g., delete or flag messages) when NSFW content is detected.
-- **Custom Actions**: Allowing users to configure specific actions for different types of detected content.
-
-## Notes
-
-- **Debian-based Maubot Container**: If using Docker, the custom container image at `ghcr.io/tcpipuk/maubot:debian` is required due to compatibility issues with Alpine. This image is a direct replacement for the official Maubot image and is necessary for running `nsfwbot`.
-- **Manual Installations**: If you prefer to use a different environment, ensure that `nsfwdetection` and `beautifulsoup4` are installed, and note that Alpine is not supported.
-
 ## Contributing
 
-Contributions to `nsfwbot` are welcome! Feel free to open an issue or submit a pull request on GitHub.
+Contributions are welcome! Open an issue or submit a pull request on GitHub.
 
 ## License
 

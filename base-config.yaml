@@ -1,13 +1,9 @@
-# Maximum concurrent image processing jobs allowed
+# All actions are true/false, except report_to_room
+# which should be the room ID in single quotes of the
+# desired room, e.g. '!room:myserver.local'
 max_concurrent_jobs: 1
-
-# Via servers to use in matrix.to URLs
 via_servers:
     - matrix.org
-
-# Actions to take when bot is triggered - all are true/false,
-# except report_to_room which should be the room ID/alias
-# (in quotes) of the desired room, e.g. '#mods:myserver.local'
 actions:
     ignore_sfw: true
     redact_nsfw: false
