@@ -35,78 +35,25 @@ See the config.py module for available settings.
 
 from __future__ import annotations
 
-from asyncio import Lock, Semaphore
 from typing import TYPE_CHECKING, ClassVar
 
 from maubot.handlers import command
-from maubot.plugin_base import Plugin
 from mautrix.errors import MBadJSON, MForbidden
-from mautrix.types import ContentURI, MediaMessageEventContent, MessageType, RoomAlias, RoomID
+from mautrix.types import ContentURI, MediaMessageEventContent, MessageType, RoomID
 from nsfw_detector import Model
 
-from nsfwbot.config import Config
+from nsfwbot.base import BasePlugin
 from nsfwbot.models import BatchImageScan
 from nsfwbot.utils import create_matrix_to_url, extract_img_tags
 
 if TYPE_CHECKING:
     from maubot.matrix import MaubotMessageEvent as MessageEvent
-    from mautrix.util.config import BaseProxyConfig
 
 
-class NSFWModelPlugin(Plugin):
+class NSFWModelPlugin(BasePlugin):
     """Plugin to detect NSFW content in images and text messages."""
 
     model: ClassVar[Model] = Model()
-    _semaphore: ClassVar[Semaphore | None] = None
-    _lock: ClassVar[Lock] = Lock()
-    via_servers: ClassVar[list] = []
-    actions: ClassVar[dict] = {}
-    report_to_room: ClassVar[str] = ""
-
-    @property
-    def semaphore(self) -> Semaphore:
-        """Lazy initialisation of semaphore.
-
-        Returns:
-            Semaphore: The semaphore instance.
-        """
-        if self._semaphore is None:
-            max_concurrent_jobs = self.config["max_concurrent_jobs"]
-            self._semaphore = Semaphore(max_concurrent_jobs)
-        return self._semaphore
-
-    @classmethod
-    def get_config_class(cls) -> type[BaseProxyConfig]:
-        """Get the configuration class for the plugin.
-
-        Returns:
-            Configuration class.
-        """
-        return Config
-
-    async def start(self) -> None:
-        """Initialise plugin by loading config."""
-        await super().start()
-        try:
-            if not isinstance(self.config, Config):
-                self.log.error("Plugin not yet configured.")
-                return
-
-            self.config.load_and_update()
-            self.via_servers = self.config["via_servers"]
-            self.actions = self.config["actions"]
-
-            report_room = str(self.actions.get("report_to_room", ""))
-            if report_room:
-                if report_room.startswith("#"):
-                    info = await self.client.resolve_room_alias(RoomAlias(report_room))
-                    self.report_to_room = str(info.room_id)
-                else:
-                    self.report_to_room = report_room
-
-            self.log.info("Loaded nsfwbot successfully")
-        except Exception:
-            self.log.exception("Error during start")
 
     async def process_scan(self, scan: BatchImageScan) -> None:
         """Process a complete scan operation.
