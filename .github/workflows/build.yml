@@ -27,18 +27,18 @@ jobs:
       - name: Lint with ruff
         run: |
           echo "## Ruff Check Results" >> $GITHUB_STEP_SUMMARY
-          ruff check . --output-format=github >> $GITHUB_STEP_SUMMARY
+          uv run ruff check . --output-format=github >> $GITHUB_STEP_SUMMARY
           echo "## Ruff Format Results" >> $GITHUB_STEP_SUMMARY
-          ruff format --check --diff . >> $GITHUB_STEP_SUMMARY
+          uv run ruff format --check --diff . >> $GITHUB_STEP_SUMMARY
 
       - name: Run tests
         run: |
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          pytest --verbose >> $GITHUB_STEP_SUMMARY
+          uv run pytest --verbose >> $GITHUB_STEP_SUMMARY
 
       - name: Build plugin
         run: |
-          mbc build
+          uv run mbc build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
