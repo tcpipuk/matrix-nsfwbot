@@ -45,14 +45,15 @@ if TYPE_CHECKING:
     from nsfw_detector import Model
 
 
-@dataclass
+@dataclass(slots=True)
 class ImageResult:
     """Represents the result of processing a single image."""
 
     mxc_url: ContentURI
-    temp_path: str | None = None
-    prediction: dict | None = None
-    error: Exception | None = None
+    nsfw_threshold: float
+    temp_path: str | None = field(default=None)
+    prediction: dict | None = field(default=None)
+    error: Exception | None = field(default=None)
 
     @property
     def success(self) -> bool:
@@ -60,9 +61,13 @@ class ImageResult:
         return self.temp_path is not None and self.prediction is not None
 
     @property
-    def is_nsfw(self) -> bool:
-        """Check if the image is classified as NSFW."""
-        return bool(self.success and self.prediction and self.prediction["Label"] == "NSFW")
+    def is_nsfw(self) -> bool | None:
+        """Check if the image is classified as NSFW based on the configured threshold."""
+        # Return None if the image was not processed successfully
+        if not self.success or self.prediction is None:
+            return None
+        # Return True if the score is greater than or equal to the threshold
+        return bool(self.prediction["Score"] >= self.nsfw_threshold)
 
     def format_result(self, matrix_to_url: str) -> str:
         """Format the result for display.
@@ -81,7 +86,7 @@ class ImageResult:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class BatchImageScan:
     """Manages a batch of images to be scanned."""
 
@@ -89,12 +94,15 @@ class BatchImageScan:
     mxc_urls: list[ContentURI]
     logger: Logger
     model: Model
+    nsfw_threshold: float
     images: list[ImageResult] = field(init=False)
     matrix_to_url: str = field(init=False)
 
     def __post_init__(self) -> None:
-        """Initialize the scan result with empty image results."""
-        self.images = [ImageResult(url) for url in self.mxc_urls]
+        """Initialise the scan result with empty image results."""
+        self.images = [
+            ImageResult(url, nsfw_threshold=self.nsfw_threshold) for url in self.mxc_urls
+        ]
         self.matrix_to_url = ""
 
     @property

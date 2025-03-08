@@ -36,9 +36,10 @@ class BasePlugin(Plugin):
 
     _semaphore: ClassVar[Semaphore | None] = None
     _lock: ClassVar[Lock] = Lock()
-    via_servers: ClassVar[list] = []
     actions: ClassVar[dict] = {}
+    nsfw_threshold: ClassVar[float] = 0.5
     report_to_room: ClassVar[str] = ""
+    via_servers: ClassVar[list[str]] = []
 
     @property
     def semaphore(self) -> Semaphore:
@@ -85,6 +86,7 @@ class BasePlugin(Plugin):
                 return
 
             self.config.load_and_update()
+            self.nsfw_threshold = float(self.config.get("nsfw_threshold", 0.5))
             self.via_servers = self.config["via_servers"]
             self.actions = self.config["actions"]
 

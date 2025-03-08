@@ -131,7 +131,13 @@ class NSFWModelPlugin(BasePlugin):
         if not isinstance(evt.content, MediaMessageEventContent) or not evt.content.url:
             return
 
-        scan = BatchImageScan(evt, [evt.content.url], self.log, self.model)
+        scan = BatchImageScan(
+            evt=evt,
+            mxc_urls=[evt.content.url],
+            logger=self.log,
+            model=self.model,
+            nsfw_threshold=self.nsfw_threshold,
+        )
         await self.process_scan(scan)
 
     @command.passive(
@@ -152,5 +158,11 @@ class NSFWModelPlugin(BasePlugin):
         if not img_urls:
             return
 
-        scan = BatchImageScan(evt, img_urls, self.log, self.model)
+        scan = BatchImageScan(
+            evt=evt,
+            mxc_urls=img_urls,
+            logger=self.log,
+            model=self.model,
+            nsfw_threshold=self.nsfw_threshold,
+        )
         await self.process_scan(scan)

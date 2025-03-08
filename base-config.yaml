@@ -2,6 +2,9 @@
 # which should be the room ID in single quotes of the
 # desired room, e.g. '!room:myserver.local'
 max_concurrent_jobs: 1
+# NSFW detection threshold (0.0 to 1.0, default 0.5)
+nsfw_threshold: 0.5
+# List of Matrix servers to include in matrix.to URLs
 via_servers:
   - matrix.org
 actions:
