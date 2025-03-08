@@ -1,8 +1,9 @@
-"""Placeholder test to verify pytest infrastructure.
+"""Tests for the NSFW detection plugin functionality.
 
-This module contains a minimal passing test to ensure the CI pipeline can complete
-successfully while the full test suite is being developed. This helps maintain
-a green build status without blocking development progress.
+This module tests the core functionality of the plugin, including:
+- Plugin loading and initialisation
+- Configuration management
+- NSFW threshold handling
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ async def test_config_loads(mock_plugin: NSFWModelPlugin) -> None:
     1. The max_concurrent_jobs setting is correct
     2. The via_servers list contains the expected server
     3. The ignore_sfw action is set correctly
+    4. The NSFW threshold is set to the default value
 
     Args:
         mock_plugin: The mock plugin instance to test.
@@ -74,9 +76,49 @@ async def test_config_loads(mock_plugin: NSFWModelPlugin) -> None:
     """
     config = cast(MockConfig, mock_plugin.config)
     base_config = config.load_base()
+
+    # Test max_concurrent_jobs
     if base_config["max_concurrent_jobs"] != 1:
         pytest.fail("Incorrect max_concurrent_jobs value")
+
+    # Test via_servers
     if "matrix.org" not in base_config["via_servers"]:
         pytest.fail("matrix.org not found in via_servers")
+
+    # Test actions
     if not base_config["actions"]["ignore_sfw"]:
         pytest.fail("ignore_sfw should be True")
+
+    # Test NSFW threshold
+    if base_config["nsfw_threshold"] != 0.5:
+        pytest.fail("Default NSFW threshold should be 0.5")
+
+
+@pytest.mark.asyncio
+async def test_nsfw_threshold_loads(mock_plugin: NSFWModelPlugin) -> None:
+    """Test that the NSFW threshold is properly loaded from config.
+
+    This test verifies that:
+    1. The default threshold is loaded correctly
+    2. The threshold is accessible in the plugin instance
+    3. The threshold is a valid float between 0 and 1
+
+    Args:
+        mock_plugin: The mock plugin instance to test.
+
+    Raises:
+        pytest.Failed: If the NSFW threshold is not properly configured.
+    """
+    await mock_plugin.start()
+
+    # Check threshold is loaded
+    if not hasattr(mock_plugin, "nsfw_threshold"):
+        pytest.fail("NSFW threshold not found in plugin instance")
+
+    # Check threshold is correct type and value
+    if not isinstance(mock_plugin.nsfw_threshold, float):
+        pytest.fail("NSFW threshold should be a float")
+
+    # Check threshold is in valid range
+    if not 0 <= mock_plugin.nsfw_threshold <= 1:
+        pytest.fail("NSFW threshold should be between 0 and 1")

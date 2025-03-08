@@ -40,6 +40,7 @@ class MockConfig(Config):
         """
         return {
             "max_concurrent_jobs": 1,
+            "nsfw_threshold": 0.5,
             "via_servers": ["matrix.org"],
             "actions": {
                 "ignore_sfw": True,
