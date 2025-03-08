@@ -119,7 +119,7 @@ class NSFWModelPlugin(BasePlugin):
             self.log.exception("Error handling scan results")
 
     @command.passive(
-        "^mxc://.+/.+$", field=lambda evt: evt.content.url or "", msgtypes=(MessageType.IMAGE)
+        "^mxc://.+/.+$", field=lambda evt: evt.content.url or "", msgtypes=[MessageType.IMAGE]
     )
     async def handle_image_message(self, evt: MessageEvent, url: tuple[str]) -> None:  # noqa: ARG002
         """Handle direct image messages.
@@ -137,7 +137,7 @@ class NSFWModelPlugin(BasePlugin):
     @command.passive(
         '^<img src="mxc://.+/.+"',
         field=lambda evt: evt.content.formatted_body or "",
-        msgtypes=(MessageType.TEXT),
+        msgtypes=[MessageType.TEXT],
     )
     async def handle_text_message(self, evt: MessageEvent) -> None:
         """Handle text messages with possible <img> tags.

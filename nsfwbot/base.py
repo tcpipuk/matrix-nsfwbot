@@ -48,7 +48,7 @@ class BasePlugin(Plugin):
             Semaphore: The semaphore instance.
         """
         if self._semaphore is None:
-            max_concurrent_jobs = self.config["max_concurrent_jobs"]
+            max_concurrent_jobs = self.config.get("max_concurrent_jobs", 1)
             self._semaphore = Semaphore(max_concurrent_jobs)
         return self._semaphore
 
