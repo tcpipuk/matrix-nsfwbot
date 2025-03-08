@@ -81,6 +81,10 @@ async def test_config_loads(mock_plugin: NSFWModelPlugin) -> None:
     if base_config["max_concurrent_jobs"] != 1:
         pytest.fail("Incorrect max_concurrent_jobs value")
 
+    # Test NSFW threshold
+    if base_config["nsfw_threshold"] != 0.5:
+        pytest.fail("Default NSFW threshold should be 0.5")
+
     # Test via_servers
     if "matrix.org" not in base_config["via_servers"]:
         pytest.fail("matrix.org not found in via_servers")
@@ -88,10 +92,6 @@ async def test_config_loads(mock_plugin: NSFWModelPlugin) -> None:
     # Test actions
     if not base_config["actions"]["ignore_sfw"]:
         pytest.fail("ignore_sfw should be True")
-
-    # Test NSFW threshold
-    if base_config["nsfw_threshold"] != 0.5:
-        pytest.fail("Default NSFW threshold should be 0.5")
 
 
 @pytest.mark.asyncio
