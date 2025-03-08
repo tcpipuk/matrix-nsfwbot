@@ -6,14 +6,16 @@ and takes appropriate actions based on the configuration.
 
 from __future__ import annotations
 
-from asyncio import Semaphore
+from asyncio import Lock, Semaphore, gather
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from bs4 import BeautifulSoup
-from maubot import MessageEvent, Plugin
 from maubot.handlers import command
+from maubot.plugin_base import Plugin
 from mautrix.errors import MBadJSON, MForbidden
 from mautrix.types import (
     ContentURI,
@@ -27,6 +29,129 @@ from mautrix.types import (
 from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 from nsfw_detector import Model
 
+if TYPE_CHECKING:
+    from logging import Logger
+
+    from maubot.matrix import MaubotMatrixClient as Client, MaubotMessageEvent as MessageEvent
+
+
+@dataclass
+class ImageResult:
+    """Represents the result of processing a single image."""
+
+    mxc_url: ContentURI
+    temp_path: str | None = None
+    prediction: dict | None = None
+    error: Exception | None = None
+
+    @property
+    def success(self) -> bool:
+        """Check if the image was processed successfully."""
+        return self.temp_path is not None and self.prediction is not None
+
+    @property
+    def is_nsfw(self) -> bool:
+        """Check if the image is classified as NSFW."""
+        return bool(self.success and self.prediction and self.prediction["Label"] == "NSFW")
+
+    def format_result(self, matrix_to_url: str) -> str:
+        """Format the result for display.
+
+        Args:
+            matrix_to_url: The matrix.to URL for the message.
+
+        Returns:
+            Formatted string describing the result.
+        """
+        if not self.success:
+            return f"{self.mxc_url} in {matrix_to_url} could not be processed: {self.error}"
+        return (
+            f"{self.mxc_url} in {matrix_to_url} appears {self.prediction['Label']} "
+            f"with score {self.prediction['Score']:.2%}"
+        )
+
+
+@dataclass
+class ScanResult:
+    """Manages a batch of images to be scanned."""
+
+    event: MessageEvent
+    mxc_urls: list[ContentURI]
+    logger: Logger
+    model: Model
+    images: list[ImageResult] = field(init=False)
+    matrix_to_url: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Initialize the scan result with empty image results."""
+        self.images = [ImageResult(url) for url in self.mxc_urls]
+        self.matrix_to_url = ""
+
+    @property
+    def has_nsfw(self) -> bool:
+        """Check if any successfully processed images are NSFW."""
+        return any(img.is_nsfw for img in self.images)
+
+    @property
+    def all_succeeded(self) -> bool:
+        """Check if all images were processed successfully."""
+        return all(img.success for img in self.images)
+
+    async def download_images(self, client: Client) -> None:
+        """Download all images concurrently.
+
+        Args:
+            client: The Matrix client to use for downloads.
+        """
+
+        async def download_single(image: ImageResult) -> None:
+            try:
+                with NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+                    img_bytes = await client.download_media(image.mxc_url)
+                    Path(temp_file.name).write_bytes(img_bytes)
+                    image.temp_path = temp_file.name
+            except Exception as e:
+                image.error = e
+                self.logger.warning("Failed to download %s: %s", image.mxc_url, e)
+
+        await gather(*[download_single(image) for image in self.images])
+
+    def process_images(self) -> None:
+        """Process all successfully downloaded images with the NSFW model."""
+        try:
+            # Get paths of successfully downloaded images
+            valid_images = [(img.mxc_url, img.temp_path) for img in self.images if img.temp_path]
+            if not valid_images:
+                return
+
+            # Run predictions
+            predictions = self.model.predict([path for _, path in valid_images])
+
+            # Update image results with predictions
+            for img in self.images:
+                if img.temp_path and img.temp_path in predictions:
+                    img.prediction = predictions[img.temp_path]
+        except Exception as e:
+            self.logger.exception("Error processing images with model")
+            for img in self.images:
+                if not img.error:  # Don't overwrite download errors
+                    img.error = e
+
+    def cleanup(self) -> None:
+        """Remove all temporary files."""
+        for img in self.images:
+            if img.temp_path:
+                Path(img.temp_path).unlink(missing_ok=True)
+
+    def format_response(self) -> str:
+        """Format the complete scan results for display.
+
+        Returns:
+            Formatted string containing all results.
+        """
+        parts = [img.format_result(self.matrix_to_url) for img in self.images]
+        return "- " + "\n- ".join(parts) if len(parts) > 1 else parts[0]
+
 
 class Config(BaseProxyConfig):
     """Configuration manager for the NSFWModelPlugin."""
@@ -34,7 +159,8 @@ class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
         """Update the configuration with new values.
 
-        :param helper: Helper object to copy configuration values.
+        Args:
+            helper: Helper object to copy configuration values.
         """
         helper.copy("max_concurrent_jobs")
         helper.copy("via_servers")
@@ -45,42 +171,130 @@ class NSFWModelPlugin(Plugin):
     """Plugin to detect NSFW content in images and text messages."""
 
     model: ClassVar[Model] = Model()
-    semaphore: ClassVar[Semaphore] = Semaphore(1)
+    _semaphore: ClassVar[Semaphore | None] = None
+    _lock: ClassVar[Lock] = Lock()
     via_servers: ClassVar[list] = []
     actions: ClassVar[dict] = {}
     report_to_room: ClassVar[str] = ""
+
+    @property
+    def semaphore(self) -> Semaphore:
+        """Lazy initialisation of semaphore.
+
+        Returns:
+            Semaphore: The semaphore instance.
+        """
+        if self._semaphore is None:
+            max_concurrent_jobs = self.config["max_concurrent_jobs"]
+            self._semaphore = Semaphore(max_concurrent_jobs)
+        return self._semaphore
 
     @classmethod
     def get_config_class(cls) -> type[BaseProxyConfig]:
         """Get the configuration class for the plugin.
 
-        :return: Configuration class.
+        Returns:
+            Configuration class.
         """
         return Config
 
+    @lru_cache(maxsize=100)
+    async def resolve_room_alias(self, room_alias: str) -> str:
+        """Resolve room alias to room ID with caching.
+
+        Args:
+            room_alias: The room alias to resolve.
+
+        Returns:
+            str: The resolved room ID.
+        """
+        if not room_alias.startswith("#"):
+            return room_alias
+        info = await self.client.resolve_room_alias(RoomAlias(room_alias))
+        return str(info.room_id)
+
     async def start(self) -> None:
-        """Initialise plugin by loading config and setting up semaphore."""
+        """Initialise plugin by loading config."""
         await super().start()
         try:
             if not isinstance(self.config, Config):
                 self.log.error("Plugin not yet configured.")
-            else:
-                self.config.load_and_update()
-                self.via_servers = self.config["via_servers"]
-                self.actions = self.config["actions"]
-                max_concurrent_jobs = self.config["max_concurrent_jobs"]
-                self.semaphore = Semaphore(max_concurrent_jobs)
-                self.report_to_room = str(self.actions.get("report_to_room", ""))
-                if self.report_to_room.startswith("#"):
-                    report_to_info = await self.client.resolve_room_alias(
-                        RoomAlias(self.report_to_room)
-                    )
-                    self.report_to_room = report_to_info.room_id
-                elif self.report_to_room and not self.report_to_room.startswith("!"):
-                    self.log.warning("Invalid room ID or alias provided for report_to_room")
-                self.log.info("Loaded nsfwbot successfully")
+                return
+
+            self.config.load_and_update()
+            self.via_servers = self.config["via_servers"]
+            self.actions = self.config["actions"]
+
+            report_room = str(self.actions.get("report_to_room", ""))
+            if report_room:
+                self.report_to_room = await self.resolve_room_alias(report_room)
+
+            self.log.info("Loaded nsfwbot successfully")
         except Exception:
             self.log.exception("Error during start")
+
+    async def process_scan(self, scan: ScanResult) -> None:
+        """Process a complete scan operation.
+
+        Args:
+            scan: The scan result to process.
+        """
+        async with self.semaphore:
+            try:
+                # Set the matrix.to URL for the scan
+                scan.matrix_to_url = self.create_matrix_to_url(
+                    scan.event.room_id, scan.event.event_id
+                )
+
+                # Download and process images
+                await scan.download_images(self.client)
+                scan.process_images()
+
+                # Handle responses and actions
+                await self.handle_scan_results(scan)
+            except Exception:
+                self.log.exception("Error processing scan")
+            finally:
+                scan.cleanup()
+
+    async def handle_scan_results(self, scan: ScanResult) -> None:
+        """Handle the results of a completed scan.
+
+        Args:
+            scan: The completed scan result.
+        """
+        try:
+            # Check if we should ignore SFW results
+            if self.actions.get("ignore_sfw", False) and not scan.has_nsfw:
+                self.log.info("Ignored SFW images in %s", scan.event.room_id)
+                return
+
+            response = scan.format_response()
+
+            # Direct reply in the same room
+            if self.actions.get("direct_reply", False):
+                await scan.event.reply(response)
+                self.log.info("Replied to %s", scan.event.room_id)
+
+            # Report to a specific room
+            if self.report_to_room:
+                try:
+                    await self.client.send_text(room_id=RoomID(self.report_to_room), text=response)
+                    self.log.info("Sent report to %s", self.report_to_room)
+                except MBadJSON:
+                    self.log.warning("Failed to send message to %s", self.report_to_room)
+
+            # Redact NSFW messages if enabled
+            if self.actions.get("redact_nsfw", False) and scan.has_nsfw:
+                try:
+                    await self.client.redact(
+                        room_id=scan.event.room_id, event_id=scan.event.event_id, reason="NSFW"
+                    )
+                    self.log.info("Redacted NSFW message in %s", scan.event.room_id)
+                except MForbidden:
+                    self.log.warning("Failed to redact NSFW message in %s", scan.event.room_id)
+        except Exception:
+            self.log.exception("Error handling scan results")
 
     @command.passive(
         "^mxc://.+/.+$", field=lambda evt: evt.content.url or "", msgtypes=(MessageType.IMAGE)
@@ -88,18 +302,15 @@ class NSFWModelPlugin(Plugin):
     async def handle_image_message(self, evt: MessageEvent, url: tuple[str]) -> None:
         """Handle direct image messages.
 
-        :param evt: The message event containing the image.
-        :param url: The URL of the image.
+        Args:
+            evt: The message event containing the image.
+            url: The URL of the image.
         """
-        try:
-            if not isinstance(evt.content, MediaMessageEventContent) or not evt.content.url:
-                return
-            results = await self.process_images([evt.content.url])
-            matrix_to_url = self.create_matrix_to_url(evt.room_id, evt.event_id)
-            response = self.format_response(results, matrix_to_url)
-            await self.send_responses(evt, response, results)
-        except Exception:
-            self.log.exception("Error handling image message")
+        if not isinstance(evt.content, MediaMessageEventContent) or not evt.content.url:
+            return
+
+        scan = ScanResult(evt, [evt.content.url], self.log, self.model)
+        await self.process_scan(scan)
 
     @command.passive(
         '^<img src="mxc://.+/.+"',
@@ -109,54 +320,28 @@ class NSFWModelPlugin(Plugin):
     async def handle_text_message(self, evt: MessageEvent) -> None:
         """Handle text messages with possible <img> tags.
 
-        :param evt: The message event containing the text.
+        Args:
+            evt: The message event containing the text.
         """
-        try:
-            if isinstance(evt.content, TextMessageEventContent) and evt.content.formatted_body:
-                img_urls = self.extract_img_tags(evt.content.formatted_body)
-                if len(img_urls) == 0:
-                    return
-                all_results = await self.process_images([ContentURI(url) for url in img_urls])
-                matrix_to_url = self.create_matrix_to_url(evt.room_id, evt.event_id)
-                response = self.format_response(all_results, matrix_to_url)
-                await self.send_responses(evt, response, all_results)
-        except Exception:
-            self.log.exception("Error handling text message")
+        if not isinstance(evt.content, TextMessageEventContent) or not evt.content.formatted_body:
+            return
 
-    async def process_images(self, mxc_urls: list[ContentURI]) -> dict:
-        """Download and process the images using the NSFW model.
+        img_urls = [ContentURI(url) for url in self.extract_img_tags(evt.content.formatted_body)]
+        if not img_urls:
+            return
 
-        :param mxc_urls: List of MXC URLs of the images.
-        :return: Dictionary of results with MXC URLs as keys and predictions as values.
-        """
-        async with self.semaphore:
-            temp_files = []
-            try:
-                for mxc_url in mxc_urls:
-                    img_bytes = await self.client.download_media(mxc_url)
-                    with NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-                        Path(temp_file.name).write_bytes(img_bytes)
-                        temp_files.append((mxc_url, temp_file.name))
-
-                predictions = self.model.predict([temp_filename for _, temp_filename in temp_files])
-
-                return {
-                    str(mxc_url): predictions.pop(temp_filename)
-                    for mxc_url, temp_filename in temp_files
-                }
-            except Exception:
-                self.log.exception("Error processing images")
-                return {}
-            finally:
-                for _, temp_filename in temp_files:
-                    Path(temp_filename).unlink()
+        scan = ScanResult(evt, img_urls, self.log, self.model)
+        await self.process_scan(scan)
 
     def create_matrix_to_url(self, room_id: RoomID, event_id: EventID) -> str:
         """Create a matrix.to URL for a given room ID and event ID.
 
-        :param room_id: The room ID.
-        :param event_id: The event ID.
-        :return: The matrix.to URL.
+        Args:
+            room_id: The room ID.
+            event_id: The event ID.
+
+        Returns:
+            The matrix.to URL.
         """
         via_params = (
             "?" + "&".join(f"via={server}" for server in self.via_servers)
@@ -168,66 +353,11 @@ class NSFWModelPlugin(Plugin):
     def extract_img_tags(self, html: str) -> list[str]:
         """Extract image URLs from <img> tags in the HTML content.
 
-        :param html: The HTML content.
-        :return: List of image URLs.
+        Args:
+            html: The HTML content.
+
+        Returns:
+            List of image URLs.
         """
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html, "html.parser", parser="lxml")
         return [img["src"] for img in soup.find_all("img") if "src" in img.attrs]
-
-    def format_response(self, results: dict, matrix_to_url: str) -> str:
-        """Format the response message based on the results.
-
-        :param results: Dictionary of results with MXC URLs as keys and predictions as values.
-        :param matrix_to_url: The matrix.to URL for the original message.
-        :return: The formatted response message.
-        """
-        response_parts = [
-            f"{mxc_url} in {matrix_to_url} appears {res['Label']} with score {res['Score']:.2%}"
-            for mxc_url, res in results.items()
-        ]
-        if len(response_parts) > 1:
-            return "- " + "\n- ".join(response_parts)
-        return "\n".join(response_parts)
-
-    async def send_responses(self, evt: MessageEvent, response: str, results: dict) -> None:
-        """Send responses or take actions based on config.
-
-        :param evt: The message event.
-        :param response: The formatted response message.
-        :param results: Dictionary of results with MXC URLs as keys and predictions as values.
-        """
-        try:
-            # Check if we should ignore SFW images
-            ignore_sfw = self.actions.get("ignore_sfw", False)
-            nsfw_results = [res for res in results.values() if res["Label"] == "NSFW"]
-            # If all images were SFW and should be ignored
-            if ignore_sfw and not nsfw_results:
-                self.log.info("Ignored SFW images in %s", evt.room_id)
-                return
-
-            # Direct reply in the same room
-            if self.actions.get("direct_reply", False):
-                await evt.reply(response)
-                self.log.info("Replied to %s", evt.room_id)
-
-            # Report to a specific room
-            if self.report_to_room:
-                try:
-                    await self.client.send_text(room_id=RoomID(self.report_to_room), text=response)
-                    self.log.info("Sent report to %s", RoomID(self.report_to_room))
-                except MBadJSON as e:
-                    self.log.warning(
-                        "Failed to send message to %s: %s", RoomID(self.report_to_room), e
-                    )
-
-            # Redact the message if it's NSFW and redacting is enabled
-            if nsfw_results and self.actions.get("redact_nsfw", False):
-                try:
-                    await self.client.redact(
-                        room_id=evt.room_id, event_id=evt.event_id, reason="NSFW"
-                    )
-                    self.log.info("Redacted NSFW message in %s", evt.room_id)
-                except MForbidden:
-                    self.log.warning("Failed to redact NSFW message in %s", evt.room_id)
-        except Exception:
-            self.log.exception("Error sending responses")
