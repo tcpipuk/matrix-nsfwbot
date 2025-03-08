@@ -65,7 +65,7 @@ class NSFWModelPlugin(BasePlugin):
             try:
                 # Set the matrix.to URL for the scan
                 scan.matrix_to_url = create_matrix_to_url(
-                    scan.event.room_id, scan.event.event_id, self.via_servers
+                    scan.evt.room_id, scan.evt.event_id, self.via_servers
                 )
 
                 # Download and process images
@@ -88,15 +88,15 @@ class NSFWModelPlugin(BasePlugin):
         try:
             # Check if we should ignore SFW results
             if self.actions.get("ignore_sfw", False) and not scan.has_nsfw:
-                self.log.info("Ignored SFW images in %s", scan.event.room_id)
+                self.log.info("Ignored SFW images in %s", scan.evt.room_id)
                 return
 
             response = scan.format_response()
 
             # Direct reply in the same room
             if self.actions.get("direct_reply", False):
-                await scan.event.reply(response)
-                self.log.info("Replied to %s", scan.event.room_id)
+                await scan.evt.reply(response)
+                self.log.info("Replied to %s", scan.evt.room_id)
 
             # Report to a specific room
             if self.report_to_room:
@@ -110,11 +110,11 @@ class NSFWModelPlugin(BasePlugin):
             if self.actions.get("redact_nsfw", False) and scan.has_nsfw:
                 try:
                     await self.client.redact(
-                        room_id=scan.event.room_id, event_id=scan.event.event_id, reason="NSFW"
+                        room_id=scan.evt.room_id, event_id=scan.evt.event_id, reason="NSFW"
                     )
-                    self.log.info("Redacted NSFW message in %s", scan.event.room_id)
+                    self.log.info("Redacted NSFW message in %s", scan.evt.room_id)
                 except MForbidden:
-                    self.log.warning("Failed to redact NSFW message in %s", scan.event.room_id)
+                    self.log.warning("Failed to redact NSFW message in %s", scan.evt.room_id)
         except Exception:
             self.log.exception("Error handling scan results")
 
