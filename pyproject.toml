@@ -7,7 +7,11 @@ requires-python = ">=3.13"
 license = "AGPL-3.0-or-later"
 authors = [{ name = "Tom Foster", email = "tom@tcpip.uk" }]
 maintainers = [{ name = "Tom Foster", email = "tom@tcpip.uk" }]
-dependencies = ["beautifulsoup4>=4.13.3", "nsfwdetection>=1.0.2"]
+dependencies = [
+    "beautifulsoup4>=4.13.3",
+    "nsfwdetection>=1.0.2",
+    "pillow>=11.1.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/tcpipuk/matrix-nsfwbot"
@@ -60,3 +64,4 @@ dev-dependencies = [
     "pytest-timeout>=2.3.1",
     "ruff>=0.9.7",
 ]
+link-mode = "copy"
