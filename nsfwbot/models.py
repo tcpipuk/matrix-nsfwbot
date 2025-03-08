@@ -88,9 +88,17 @@ class ImageResult:
 
 @dataclass(slots=True)
 class BatchImageScan:
-    """Manages a batch of images to be scanned."""
+    """Manages a batch of images to be scanned.
 
-    event: MessageEvent
+    Args:
+        evt: The Matrix message event being processed.
+        mxc_urls: List of Matrix content URLs to scan.
+        logger: Logger instance for recording scan progress.
+        model: NSFW detection model instance.
+        nsfw_threshold: Confidence threshold for NSFW classification.
+    """
+
+    evt: MessageEvent
     mxc_urls: list[ContentURI]
     logger: Logger
     model: Model
