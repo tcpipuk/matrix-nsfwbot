@@ -32,18 +32,24 @@ jobs:
           source .venv/bin/activate
           uv sync --active --dev --no-install-project
           # Lint with ruff
-          echo "## Ruff Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Ruff Check Issues" >> $GITHUB_STEP_SUMMARY
           ruff check . --output-format=github >> $GITHUB_STEP_SUMMARY
-          echo "## Ruff Format Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Ruff Format Issues" >> $GITHUB_STEP_SUMMARY
           ruff format --check --diff . >> $GITHUB_STEP_SUMMARY
           # Run tests
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Pytest Results" >> $GITHUB_STEP_SUMMARY
           pytest --verbose >> $GITHUB_STEP_SUMMARY
           # Build plugin
           mbc build
+          # Store the .mbp filename
+          echo "MBP_FILE=$(ls *.mbp)" >> $GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
+        env:
+          MBP_FILE: ${{ env.MBP_FILE }}
         with:
-          path: "*.mbp"
+          compression-level: 0
           if-no-files-found: error
+          name: ${{ env.MBP_FILE }}
+          path: ${{ env.MBP_FILE }}
