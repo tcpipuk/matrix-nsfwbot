@@ -1,8 +1,9 @@
 # nsfwbot for Matrix
 
-`nsfwbot` is a Matrix bot plugin that attempts to detect NSFW (Not Safe For Work) images posted in
-Matrix chat rooms. It uses [nsfwdetection](https://github.com/gsarridis/NSFW-Detection-Pytorch),
-which includes a small model that can run without a GPU with low resource requirements.
+`nsfwbot` is a [Maubot](https://github.com/maubot/maubot) plugin for Matrix that helps maintain
+appropriate content in chat rooms by detecting NSFW (Not Safe For Work) images. It uses
+[nsfwdetection](https://github.com/gsarridis/NSFW-Detection-Pytorch), a lightweight model that can
+run efficiently without requiring a GPU.
 
 ## Features
 
@@ -13,69 +14,107 @@ which includes a small model that can run without a GPU with low resource requir
 
 ## Requirements
 
-- **Maubot**: Runs within the Maubot framework.
-- **Python Dependencies**: `nsfwdetection` and `beautifulsoup4`.
-  > **Note**: `nsfwdetection` will not run on Alpine Linux. This means the default Maubot Docker
-  > image will not work. I have built a custom Debian-based Maubot in the
-  > `ghcr.io/tcpipuk/maubot:debian` Docker image.
+- **Maubot**
+- **Python Dependencies**:
+  - `beautifulsoup4`: For HTML message parsing
+  - `nsfwdetection`: For image content analysis
 
-## Installation
+> **Important**: As well as requiring the above plugins, the default
+> Alpine-based Maubot Docker image is not compatible with `nsfwdetection`.
+> You can use my custom Debian-based image instead: `ghcr.io/tcpipuk/maubot:debian`
 
-1. **Use the Custom Maubot Docker Image**:
-   Replace the official Maubot image with a custom Debian-based image:
+## Quick Start
+
+1. **Use our Debian-based Maubot image**:
 
    ```bash
    docker pull ghcr.io/tcpipuk/maubot:debian
    ```
 
-2. a. **Install pre-prepared plugin from [repository releases](https://github.com/tcpipuk/matrix-nsfwbot/releases)**
+2. **Install the plugin** (choose one method):
+   - Download from [releases](https://github.com/tcpipuk/matrix-nsfwbot/releases)
+   - Build from source:
 
-   b. **Clone the Repository**:
+     ```bash
+     git clone https://github.com/tcpipuk/matrix-nsfwbot
+     cd matrix-nsfwbot
+     zip -r nsfwbot.mbp nsfwbot/ maubot.yaml base-config.yaml
+     ```
 
-      ```bash
-      git clone https://github.com/tcpipuk/matrix-nsfwbot
-      ```
+3. **Upload and Configure**:
+   - Upload through the Maubot admin interface
+   - Configure settings (see Configuration section)
+   - Enable the plugin
 
-      Zip the plugin files and upload through the Maubot admin interface. Ensure the plugin is
-      configured and enabled.
+## Configuration Guide
 
-3. **Configure the Plugin**:
-   See configuration section below for a summary of settings in the Maubot UI.
+Edit settings in the Maubot admin interface or `base-config.yaml`:
 
-## Configuration
+```yaml
+# Control concurrent processing
+max_concurrent_jobs: 4
 
-Edit `base-config.yaml` to set:
+# Servers for matrix.to URLs
+via_servers:
+  - "matrix.org"
+  - "example.org"
 
-- `max_concurrent_jobs`: Number of concurrent jobs to allow.
-- `via_servers`: List of servers for `matrix.to` URLs.
-- `actions`:
-  - `ignore_sfw`: Ignore SFW images (default: `true`).
-  - `redact_nsfw`: Redact NSFW messages (default: `false`).
-  - `direct_reply`: Reply directly in the same room (default: `false`).
-  - `report_to_room`: Room ID for reporting (not enabled by default).
-    > **Note**: This can be a room alias (like `#room:server`) but this is far less efficient,
-      as the bot will need to find the room ID (like `!room:server`) to send messages.
+# Response configuration
+actions:
+  # Skip reporting safe content
+  ignore_sfw: true
 
-## Usage
+  # Remove inappropriate messages
+  redact_nsfw: false
 
-Once installed and configured, `nsfwbot` will automatically analyse images posted in the chat and
-reply with a classification result, e.g.
+  # Reply in the source room
+  direct_reply: true
 
-```markdown
-mxc://matrix.org/abcd1234 in https://matrix.to/#/!roomid:matrix.org/$eventid?via=matrix.org appears NSFW with score 87.93%
+  # Central reporting room
+  report_to_room: "#moderation:example.org"
 ```
 
-If multiple images are detected in a text message:
+> **Tip**: Using room IDs (like `!room:server`) is more efficient than aliases (like `#room:server`)
+> for the `report_to_room` setting.
 
-```markdown
-- mxc://matrix.org/abcd1234 in https://matrix.to/#/!roomid:matrix.org/$eventid?via=matrix.org appears SFW with score 2.45%
-- mxc://matrix.org/efgh5678 in https://matrix.to/#/!roomid:matrix.org/$eventid?via=matrix.org appears NSFW with score 94.82%
+## Usage Examples
+
+### Single Image Upload
+
+```yaml
+User: [uploads image]
+Bot: mxc://matrix.org/abc123 in https://matrix.to/#/!room:example.org/$event
+     appears NSFW with score 87.93%
+```
+
+### Multiple Embedded Images
+
+```yaml
+User: [message with embedded images]
+Bot: - mxc://matrix.org/abc123 appears SFW with score 2.45%
+     - mxc://matrix.org/xyz789 appears NSFW with score 94.82%
+```
+
+## Deployment Example
+
+Using matrix-docker-ansible-deploy:
+
+```yaml
+maubot:
+  plugins:
+    nsfwbot:
+      image: "ghcr.io/tcpipuk/maubot:debian"
+      version: "v0.3.0"
+      config:
+        max_concurrent_jobs: 4
+        actions:
+          redact_nsfw: true
 ```
 
 ## Contributing
 
 Contributions are welcome! Open an issue or submit a pull request on GitHub.
 
-## License
+## Licence
 
-This project is licensed under the AGPLv3 License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPLv3 Licence. See the [LICENCE](LICENCE) file for details.

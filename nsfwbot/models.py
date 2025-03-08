@@ -1,4 +1,35 @@
-"""Data models for the NSFWModelPlugin."""
+"""Data models for managing image analysis and results.
+
+This module provides the core data structures used to track and process images
+within the NSFW detection system. It includes:
+
+Classes:
+    ImageResult:
+        Tracks the analysis of a single image, including:
+        - Download status and temporary storage
+        - NSFW detection results and confidence scores
+        - Error handling and reporting
+
+    BatchImageScan:
+        Manages processing multiple images from a single message:
+        - Concurrent image downloads
+        - Batch NSFW detection
+        - Result formatting and temporary file cleanup
+
+The models ensure consistent handling of images throughout the detection process,
+from initial download through analysis to result reporting. They handle both
+direct image posts and images embedded in text messages.
+
+Example result format:
+    mxc://matrix.org/abc123 in https://matrix.to/#/!room:example.org/$event
+    appears NSFW with score 94.82%
+
+Technical details:
+    - Images are downloaded to temporary files
+    - NSFW detection uses the nsfwdetection library
+    - Results include both classification and confidence scores
+    - All temporary files are properly cleaned up after processing
+"""
 
 from __future__ import annotations
 
@@ -51,7 +82,7 @@ class ImageResult:
 
 
 @dataclass
-class ScanResult:
+class BatchImageScan:
     """Manages a batch of images to be scanned."""
 
     event: MessageEvent

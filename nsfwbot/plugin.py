@@ -1,26 +1,51 @@
-"""Main plugin implementation for NSFWModelPlugin."""
+"""Core Matrix plugin for NSFW content detection and management.
+
+This module implements the main Maubot plugin that monitors Matrix chat rooms for
+images and analyses them for NSFW content. It provides:
+
+Core Features:
+    - Automatic monitoring of image uploads
+    - Detection of embedded images in text messages
+    - Configurable concurrent processing
+    - Multiple response options:
+        * Direct replies with detection results
+        * Centralised reporting to a moderation room
+        * Automatic removal of inappropriate content
+
+Technical Implementation:
+    - Uses the nsfwdetection library for image analysis
+    - Implements Maubot's plugin system for Matrix integration
+    - Provides both active and passive command handlers
+    - Manages resource usage through semaphores
+
+Usage in Matrix:
+    The plugin automatically processes:
+    1. Direct image uploads
+    2. Images embedded in formatted messages
+    3. Multiple images in a single message
+
+    Results are reported based on configuration:
+    - Directly in the chat room
+    - To a designated moderation room
+    - With optional automatic message removal
+
+Configuration is handled through the Maubot admin interface or config.yaml.
+See the config.py module for available settings.
+"""
 
 from __future__ import annotations
 
 from asyncio import Lock, Semaphore
-from functools import lru_cache
 from typing import TYPE_CHECKING, ClassVar
 
 from maubot.handlers import command
 from maubot.plugin_base import Plugin
 from mautrix.errors import MBadJSON, MForbidden
-from mautrix.types import (
-    ContentURI,
-    MediaMessageEventContent,
-    MessageType,
-    RoomAlias,
-    RoomID,
-    TextMessageEventContent,
-)
+from mautrix.types import ContentURI, MediaMessageEventContent, MessageType, RoomAlias, RoomID
 from nsfw_detector import Model
 
 from nsfwbot.config import Config
-from nsfwbot.models import ScanResult
+from nsfwbot.models import BatchImageScan
 from nsfwbot.utils import create_matrix_to_url, extract_img_tags
 
 if TYPE_CHECKING:
@@ -59,21 +84,6 @@ class NSFWModelPlugin(Plugin):
         """
         return Config
 
-    @lru_cache(maxsize=100)
-    async def resolve_room_alias(self, room_alias: str) -> str:
-        """Resolve room alias to room ID with caching.
-
-        Args:
-            room_alias: The room alias to resolve.
-
-        Returns:
-            str: The resolved room ID.
-        """
-        if not room_alias.startswith("#"):
-            return room_alias
-        info = await self.client.resolve_room_alias(RoomAlias(room_alias))
-        return str(info.room_id)
-
     async def start(self) -> None:
         """Initialise plugin by loading config."""
         await super().start()
@@ -88,13 +98,17 @@ class NSFWModelPlugin(Plugin):
 
             report_room = str(self.actions.get("report_to_room", ""))
             if report_room:
-                self.report_to_room = await self.resolve_room_alias(report_room)
+                if report_room.startswith("#"):
+                    info = await self.client.resolve_room_alias(RoomAlias(report_room))
+                    self.report_to_room = str(info.room_id)
+                else:
+                    self.report_to_room = report_room
 
             self.log.info("Loaded nsfwbot successfully")
         except Exception:
             self.log.exception("Error during start")
 
-    async def process_scan(self, scan: ScanResult) -> None:
+    async def process_scan(self, scan: BatchImageScan) -> None:
         """Process a complete scan operation.
 
         Args:
@@ -118,7 +132,7 @@ class NSFWModelPlugin(Plugin):
             finally:
                 scan.cleanup()
 
-    async def handle_scan_results(self, scan: ScanResult) -> None:
+    async def handle_scan_results(self, scan: BatchImageScan) -> None:
         """Handle the results of a completed scan.
 
         Args:
@@ -170,7 +184,7 @@ class NSFWModelPlugin(Plugin):
         if not isinstance(evt.content, MediaMessageEventContent) or not evt.content.url:
             return
 
-        scan = ScanResult(evt, [evt.content.url], self.log, self.model)
+        scan = BatchImageScan(evt, [evt.content.url], self.log, self.model)
         await self.process_scan(scan)
 
     @command.passive(
@@ -184,12 +198,12 @@ class NSFWModelPlugin(Plugin):
         Args:
             evt: The message event containing the text.
         """
-        if not isinstance(evt.content, TextMessageEventContent) or not evt.content.formatted_body:
+        if not evt.content.formatted_body:
             return
 
         img_urls = [ContentURI(url) for url in extract_img_tags(evt.content.formatted_body)]
         if not img_urls:
             return
 
-        scan = ScanResult(evt, img_urls, self.log, self.model)
+        scan = BatchImageScan(evt, img_urls, self.log, self.model)
         await self.process_scan(scan)

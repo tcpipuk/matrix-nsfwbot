@@ -1,4 +1,19 @@
-"""Utility functions for the NSFWModelPlugin."""
+"""Utility functions supporting the NSFW detection plugin.
+
+This module provides helper functions that support the core plugin functionality
+but aren't directly related to NSFW detection or Matrix integration. It includes:
+
+Functions:
+    create_matrix_to_url:
+        Creates properly formatted matrix.to URLs for message references.
+        Supports federation through via parameters.
+        Example: https://matrix.to/#/!room:example.org/$event?via=matrix.org
+
+    extract_img_tags:
+        Parses HTML content to find embedded images.
+        Handles Matrix's formatted message content.
+        Returns a list of mxc:// URLs for processing.
+"""
 
 from __future__ import annotations
 
