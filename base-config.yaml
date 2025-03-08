@@ -3,9 +3,9 @@
 # desired room, e.g. '!room:myserver.local'
 max_concurrent_jobs: 1
 via_servers:
-    - matrix.org
+  - matrix.org
 actions:
-    ignore_sfw: true
-    redact_nsfw: false
-    direct_reply: false
-    report_to_room: ""
+  ignore_sfw: true
+  redact_nsfw: false
+  direct_reply: false
+  report_to_room: ""
