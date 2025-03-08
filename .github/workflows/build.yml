@@ -1,0 +1,48 @@
+name: Build and Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: |
+          uv sync --dev
+
+      - name: Lint with ruff
+        run: |
+          echo "## Ruff Check Results" >> $GITHUB_STEP_SUMMARY
+          ruff check . --output-format=github >> $GITHUB_STEP_SUMMARY
+          echo "## Ruff Format Results" >> $GITHUB_STEP_SUMMARY
+          ruff format --check --diff . >> $GITHUB_STEP_SUMMARY
+
+      - name: Run tests
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          pytest --verbose >> $GITHUB_STEP_SUMMARY
+
+      - name: Build plugin
+        run: |
+          mbc build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsfwbot-plugin
+          path: "*.mbp"
+          compression-level: 0
