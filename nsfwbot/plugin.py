@@ -121,7 +121,7 @@ class NSFWModelPlugin(BasePlugin):
     @command.passive(
         "^mxc://.+/.+$", field=lambda evt: evt.content.url or "", msgtypes=(MessageType.IMAGE)
     )
-    async def handle_image_message(self, evt: MessageEvent, url: tuple[str]) -> None:
+    async def handle_image_message(self, evt: MessageEvent, url: tuple[str]) -> None:  # noqa: ARG002
         """Handle direct image messages.
 
         Args:
