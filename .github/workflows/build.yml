@@ -17,27 +17,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install the latest version of uv
+      - name: Prepare uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Install dependencies
+      - name: Run tests and build plugin
         run: |
+          # Install dependencies
           uv sync --dev
-
-      - name: Lint with ruff
-        run: |
+          # Lint with ruff
           echo "## Ruff Check Results" >> $GITHUB_STEP_SUMMARY
           uv run ruff check . --output-format=github >> $GITHUB_STEP_SUMMARY
           echo "## Ruff Format Results" >> $GITHUB_STEP_SUMMARY
           uv run ruff format --check --diff . >> $GITHUB_STEP_SUMMARY
-
-      - name: Run tests
-        run: |
+          # Run tests
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           uv run pytest --verbose >> $GITHUB_STEP_SUMMARY
-
-      - name: Build plugin
-        run: |
+          # Build plugin
           uv run mbc build
 
       - name: Upload artifact
