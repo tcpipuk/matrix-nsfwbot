@@ -38,7 +38,7 @@ skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = []
+ignore = ["B019", "COM812"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
