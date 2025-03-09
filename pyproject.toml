@@ -1,0 +1,67 @@
+[project]
+name = "matrix-nsfwbot"
+version = "0.2.1"
+description = "A Matrix bot plugin that detects NSFW content in images and can automatically redact them"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Tom Foster", email = "tom@tcpip.uk" }]
+maintainers = [{ name = "Tom Foster", email = "tom@tcpip.uk" }]
+dependencies = [
+    "beautifulsoup4>=4.13.3",
+    "nsfwdetection>=1.0.2",
+    "pillow>=11.1.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/tcpipuk/matrix-nsfwbot"
+"Bug Tracker" = "https://github.com/tcpipuk/matrix-nsfwbot/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nsfwbot"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+cache_dir = "/tmp/.pytest_cache"
+testpaths = "tests"
+
+[tool.ruff]
+cache-dir = "/tmp/.ruff_cache"
+fix = true
+line-length = 100
+target-version = "py313"
+unsafe-fixes = true
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["B019", "BLE001", "COM812"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+required-imports = ["from __future__ import annotations"]
+split-on-trailing-comma = false
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "SLF001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.uv]
+dev-dependencies = [
+    "maubot>=0.5.1",
+    "pytest>=8.3.4",
+    "pytest-aiohttp>=1.1.0",
+    "pytest-asyncio>=0.25.3",
+    "pytest-timeout>=2.3.1",
+    "ruff>=0.9.7",
+]
+link-mode = "copy"

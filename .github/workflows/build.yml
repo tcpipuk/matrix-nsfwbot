@@ -1,0 +1,59 @@
+name: Build and Test
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+
+      - name: Run tests and build plugin
+        run: |
+          # Install dependencies
+          uv venv .venv
+          source .venv/bin/activate
+          uv sync --active --dev --no-install-project
+          # Lint with ruff
+          echo "## Ruff Check Issues" >> $GITHUB_STEP_SUMMARY
+          ruff check . --output-format=github >> $GITHUB_STEP_SUMMARY
+          echo "## Ruff Format Issues" >> $GITHUB_STEP_SUMMARY
+          ruff format --check --diff . >> $GITHUB_STEP_SUMMARY
+          # Run tests
+          echo "## Pytest Results" >> $GITHUB_STEP_SUMMARY
+          pytest --verbose >> $GITHUB_STEP_SUMMARY
+          # Build plugin
+          mbc build
+          # Store the .mbp filename
+          echo "MBP_FILE=$(ls *.mbp)" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        env:
+          MBP_FILE: ${{ env.MBP_FILE }}
+        with:
+          compression-level: 0
+          if-no-files-found: error
+          name: ${{ env.MBP_FILE }}
+          path: ${{ env.MBP_FILE }}
