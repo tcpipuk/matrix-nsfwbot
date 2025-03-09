@@ -32,13 +32,10 @@ class MockConfig(Config):
     that doesn't require a real base config file.
     """
 
-    def load_base(self) -> dict[str, Any]:
-        """Load the base configuration.
-
-        Returns:
-            dict[str, Any]: The base configuration dictionary.
-        """
-        return {
+    def __init__(self) -> None:
+        """Initialize the mock configuration with default values."""
+        # Create default config
+        self._base_config = {
             "max_concurrent_jobs": 1,
             "nsfw_threshold": 0.5,
             "via_servers": ["matrix.org"],
@@ -49,6 +46,65 @@ class MockConfig(Config):
                 "report_to_room": "",
             },
         }
+
+        # Define required functions for BaseProxyConfig
+        def load() -> dict[str, Any]:
+            return self._base_config.copy()
+
+        def save(data: dict[str, Any]) -> None:
+            self._base_config.update(data)
+
+        # Initialise the parent class with required arguments
+        super().__init__(load, self.load_base, save)
+
+        # Initialize the base config
+        self.base = self.load_base()
+
+    def load_base(self) -> dict[str, Any]:
+        """Load the base configuration.
+
+        Returns:
+            dict[str, Any]: The base configuration dictionary.
+        """
+        return self._base_config.copy()
+
+    def load_and_update(self) -> None:
+        """Load and update the configuration.
+
+        This method is called by the plugin to reload the configuration.
+        In the mock, it ensures the base config is loaded and updated.
+        """
+        # Update the base config from _base_config
+        self.base = self.load_base()
+
+    def __getitem__(self, key: str) -> object:
+        """Get a configuration value.
+
+        This method is called by the plugin to get configuration values.
+        In the mock, it returns values directly from _base_config.
+
+        Args:
+            key: The configuration key to get.
+
+        Returns:
+            The configuration value.
+        """
+        return self._base_config[key]
+
+    def get(self, key: str, default: object = None) -> object:
+        """Get a configuration value with a default.
+
+        This method is called by the plugin to get configuration values.
+        In the mock, it returns values directly from _base_config.
+
+        Args:
+            key: The configuration key to get.
+            default: The default value if the key doesn't exist.
+
+        Returns:
+            The configuration value or the default.
+        """
+        return self._base_config.get(key, default)
 
 
 class MockClient(Client):
@@ -146,28 +202,30 @@ class MockLoader(PluginLoader):
 
 @pytest.fixture
 async def mock_plugin() -> AsyncGenerator[NSFWModelPlugin]:
-    """Create a mock NSFWBot plugin instance for testing.
+    """Create a mock plugin instance for testing.
 
-    This fixture provides a fully configured mock plugin instance with
-    minimal valid configuration for testing purposes.
+    This fixture provides a fully initialized NSFWModelPlugin instance
+    with mock dependencies for testing.
 
     Yields:
-        NSFWModelPlugin: A configured mock plugin instance.
+        NSFWModelPlugin: The mock plugin instance.
     """
-    # Create all required dependencies
-    client = MockClient()
+    # Create mock loader
     loader = MockLoader()
 
-    # Create plugin instance with all required dependencies
+    # Create mock client
+    client = MockClient()
+
+    # Create the plugin instance
     return NSFWModelPlugin(
         client=client,
         loop=asyncio.get_event_loop(),
-        http=web.Application(),
+        http=None,  # Plugin doesn't use HTTP
         instance_id="test_instance",
         log=logging.getLogger("test_logger"),
-        config=MockConfig(dict, lambda: None, loader),
+        config=MockConfig(),
         database=None,  # Plugin doesn't use a database
         webapp=web.Application(),
-        webapp_url="http://test.local",
+        webapp_url="http://test.local",  # Required parameter
         loader=loader,
     )

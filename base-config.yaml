@@ -2,14 +2,15 @@
 max_concurrent_jobs: 1
 # NSFW detection threshold (0.0 to 1.0, default 0.5)
 nsfw_threshold: 0.5
+# Room to report images to (leave blank for no reporting)
+# e.g. '!room:myserver.local'
+report_to_room: null
 # List of Matrix servers to include in matrix.to URLs
 via_servers:
   - matrix.org
-# Actions are true/false, except report_to_room which
-# should be a room ID in single quotes,
-# e.g. '!room:myserver.local'
+# True/false actions to perform based on results
 actions:
   ignore_sfw: true
   redact_nsfw: false
   direct_reply: false
-  report_to_room: ""
+  post_errors: false

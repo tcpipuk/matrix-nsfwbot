@@ -34,8 +34,12 @@ Technical details:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal, getcontext as decimal_getcontext
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+# Set precision for Decimal calculations
+decimal_getcontext().prec = 10
 
 if TYPE_CHECKING:
     from logging import Logger
@@ -50,7 +54,7 @@ class ImageResult:
     """Represents the result of processing a single image."""
 
     mxc_url: ContentURI
-    nsfw_threshold: float
+    config: Any
     temp_path: str | None = field(default=None)
     prediction: dict | None = field(default=None)
     error: Exception | None = field(default=None)
@@ -62,12 +66,26 @@ class ImageResult:
 
     @property
     def is_nsfw(self) -> bool | None:
-        """Check if the image is classified as NSFW based on the configured threshold."""
+        """Check if the image is classified as NSFW based on the configured threshold.
+
+        We only care about the score compared to our configured threshold,
+        not the model's own binary classification label.
+
+        Returns:
+            bool|None: True if score >= threshold, False if score < threshold, None if failed
+        """
         # Return None if the image was not processed successfully
         if not self.success or self.prediction is None:
             return None
+
+        # Read threshold directly from config and convert to Decimal
+        threshold = Decimal(str(self.config.get("nsfw_threshold", 0.5)))
+
+        # Get the score and convert to Decimal
+        score = Decimal(str(self.prediction["Score"]))
+
         # Return True if the score is greater than or equal to the threshold
-        return bool(self.prediction["Score"] >= self.nsfw_threshold)
+        return bool(score >= threshold)
 
     def format_result(self, matrix_to_url: str) -> str:
         """Format the result for display.
@@ -79,10 +97,29 @@ class ImageResult:
             Formatted string describing the result.
         """
         if not self.success:
-            return f"{self.mxc_url} in {matrix_to_url} could not be processed: {self.error}"
+            error_msg = str(self.error) if self.error else "unknown error"
+            # Check for common error patterns
+            if "broadcast" in error_msg and "shapes" in error_msg:
+                return (
+                    f"{self.mxc_url} in {matrix_to_url} could not be processed: "
+                    "image format error (RGBA vs RGB)"
+                )
+            return f"{self.mxc_url} in {matrix_to_url} could not be processed: {error_msg}"
+
+        # Read threshold directly from config and convert to Decimal
+        threshold = Decimal(str(self.config.get("nsfw_threshold", 0.5)))
+
+        # Format the result with score percentage
+        score = Decimal(str(self.prediction["Score"]))
+
+        # Determine if NSFW based on our threshold, not the model's label
+        is_nsfw = score >= threshold
+        our_label = "NSFW" if is_nsfw else "SFW"
+        threshold_status = "above" if is_nsfw else "below"
+
         return (
-            f"{self.mxc_url} in {matrix_to_url} appears {self.prediction['Label']} "
-            f"with score {self.prediction['Score']:.2%}"
+            f"{self.mxc_url} in {matrix_to_url} appears {our_label} "
+            f"with score {score:.2%} ({threshold_status} threshold of {threshold:.2%})"
         )
 
 
@@ -95,22 +132,20 @@ class BatchImageScan:
         mxc_urls: List of Matrix content URLs to scan.
         logger: Logger instance for recording scan progress.
         model: NSFW detection model instance.
-        nsfw_threshold: Confidence threshold for NSFW classification.
+        config: The plugin configuration object.
     """
 
     evt: MessageEvent
     mxc_urls: list[ContentURI]
     logger: Logger
     model: Model
-    nsfw_threshold: float
+    config: Any
     images: list[ImageResult] = field(init=False)
     matrix_to_url: str = field(init=False)
 
     def __post_init__(self) -> None:
         """Initialise the scan result with empty image results."""
-        self.images = [
-            ImageResult(url, nsfw_threshold=self.nsfw_threshold) for url in self.mxc_urls
-        ]
+        self.images = [ImageResult(url, config=self.config) for url in self.mxc_urls]
         self.matrix_to_url = ""
 
     @property
@@ -144,6 +179,33 @@ class BatchImageScan:
 
         await gather(*[download_single(image) for image in self.images])
 
+    def _process_single_image(self, path: str) -> tuple[dict | None, Exception | None]:
+        """Process a single image and handle errors.
+
+        Args:
+            path: Path to the image file
+
+        Returns:
+            Tuple of (prediction, error)
+        """
+        try:
+            # Process the image
+            single_prediction = self.model.predict([path])
+            if path in single_prediction:
+                return single_prediction[path], None
+            return None, ValueError(f"No prediction for {path}")
+        except ValueError as e:
+            # Handle channel mismatch errors (RGBA vs RGB)
+            error_msg = str(e)
+            if "broadcast" in error_msg and "shapes" in error_msg:
+                self.logger.warning("RGBA image detected, cannot process: %s", path)
+                return None, ValueError("Model doesn't know how to handle RGBA images yet")
+            self.logger.warning("ValueError processing image: %s", error_msg)
+            return None, e
+        except Exception as e:
+            self.logger.warning("Error processing image: %s", e)
+            return None, e
+
     def process_images(self) -> None:
         """Process all successfully downloaded images with the NSFW model."""
         try:
@@ -152,17 +214,29 @@ class BatchImageScan:
             if not valid_images:
                 return
 
-            # Run predictions
-            predictions = self.model.predict([path for _, path in valid_images])
-
-            # Update image results with predictions
+            # Process each image
             for img in self.images:
-                if img.temp_path and img.temp_path in predictions:
-                    img.prediction = predictions[img.temp_path]
+                if not img.temp_path:
+                    continue
+
+                # Process the image
+                try:
+                    prediction, error = self._process_single_image(img.temp_path)
+
+                    # Store responses for processing
+                    if prediction:
+                        img.prediction = prediction
+                    elif error:
+                        img.error = error
+                        self.logger.warning("Error processing image %s: %s", img.mxc_url, error)
+                except Exception as e:
+                    img.error = e
+                    self.logger.exception("Unexpected error processing image %s", img.mxc_url)
+
         except Exception as e:
             self.logger.exception("Error processing images with model")
             for img in self.images:
-                if not img.error:  # Don't overwrite download errors
+                if not img.error:
                     img.error = e
 
     def cleanup(self) -> None:

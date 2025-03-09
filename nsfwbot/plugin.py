@@ -64,8 +64,9 @@ class NSFWModelPlugin(BasePlugin):
         async with self.semaphore:
             try:
                 # Set the matrix.to URL for the scan
+                via_servers = self.config.get("via_servers", ["matrix.org"])
                 scan.matrix_to_url = create_matrix_to_url(
-                    scan.evt.room_id, scan.evt.event_id, self.via_servers
+                    scan.evt.room_id, scan.evt.event_id, via_servers
                 )
 
                 # Download and process images
@@ -86,35 +87,51 @@ class NSFWModelPlugin(BasePlugin):
             scan: The completed scan result.
         """
         try:
-            # Check if we should ignore SFW results
-            if self.actions.get("ignore_sfw", False) and not scan.has_nsfw:
-                self.log.info("Ignored SFW images in %s", scan.evt.room_id)
+            # Ensure actions is never None
+            actions = self.config.get("actions", {}) or {}
+
+            # Get the current ignore_sfw setting from config
+            ignore_sfw = bool(actions.get("ignore_sfw", False))
+            post_errors = bool(actions.get("post_errors", False))
+
+            # Check if there are any errors
+            has_errors = any(img.error is not None for img in scan.images)
+
+            # Only ignore SFW results if ignore_sfw is True and no NSFW images were found
+            if ignore_sfw and not scan.has_nsfw and not (has_errors and post_errors):
+                self.log.info(
+                    "Ignored images below NSFW threshold in %s (ignore_sfw=%s)",
+                    scan.evt.room_id,
+                    ignore_sfw,
+                )
                 return
 
             response = scan.format_response()
+            self.log.debug("Scan results: %s", response)
 
             # Direct reply in the same room
-            if self.actions.get("direct_reply", False):
+            if actions.get("direct_reply", False):
                 await scan.evt.reply(response)
                 self.log.info("Replied to %s", scan.evt.room_id)
 
             # Report to a specific room
-            if self.report_to_room:
+            report_to_room = self.config.get("report_to_room", None)
+            if report_to_room:
                 try:
-                    await self.client.send_text(room_id=RoomID(self.report_to_room), text=response)
-                    self.log.info("Sent report to %s", self.report_to_room)
+                    await self.client.send_text(room_id=RoomID(report_to_room), text=response)
+                    self.log.info("Sent report to %s", report_to_room)
                 except MBadJSON:
-                    self.log.warning("Failed to send message to %s", self.report_to_room)
+                    self.log.warning("Failed to send message to %s", report_to_room)
 
             # Redact NSFW messages if enabled
-            if self.actions.get("redact_nsfw", False) and scan.has_nsfw:
+            if actions.get("redact_nsfw", False) and scan.has_nsfw:
                 try:
                     await self.client.redact(
                         room_id=scan.evt.room_id, event_id=scan.evt.event_id, reason="NSFW"
                     )
-                    self.log.info("Redacted NSFW message in %s", scan.evt.room_id)
+                    self.log.info("Redacted message with NSFW content in %s", scan.evt.room_id)
                 except MForbidden:
-                    self.log.warning("Failed to redact NSFW message in %s", scan.evt.room_id)
+                    self.log.warning("Failed to redact message in %s", scan.evt.room_id)
         except Exception:
             self.log.exception("Error handling scan results")
 
@@ -136,7 +153,7 @@ class NSFWModelPlugin(BasePlugin):
             mxc_urls=[evt.content.url],
             logger=self.log,
             model=self.model,
-            nsfw_threshold=self.nsfw_threshold,
+            config=self.config,
         )
         await self.process_scan(scan)
 
@@ -159,10 +176,6 @@ class NSFWModelPlugin(BasePlugin):
             return
 
         scan = BatchImageScan(
-            evt=evt,
-            mxc_urls=img_urls,
-            logger=self.log,
-            model=self.model,
-            nsfw_threshold=self.nsfw_threshold,
+            evt=evt, mxc_urls=img_urls, logger=self.log, model=self.model, config=self.config
         )
         await self.process_scan(scan)

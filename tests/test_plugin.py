@@ -77,6 +77,8 @@ async def test_config_loads(mock_plugin: NSFWModelPlugin) -> None:
     config = cast(MockConfig, mock_plugin.config)
     base_config = config.load_base()
 
+    await mock_plugin.start()
+
     # Test max_concurrent_jobs
     if base_config["max_concurrent_jobs"] != 1:
         pytest.fail("Incorrect max_concurrent_jobs value")
@@ -93,32 +95,11 @@ async def test_config_loads(mock_plugin: NSFWModelPlugin) -> None:
     if not base_config["actions"]["ignore_sfw"]:
         pytest.fail("ignore_sfw should be True")
 
-
-@pytest.mark.asyncio
-async def test_nsfw_threshold_loads(mock_plugin: NSFWModelPlugin) -> None:
-    """Test that the NSFW threshold is properly loaded from config.
-
-    This test verifies that:
-    1. The default threshold is loaded correctly
-    2. The threshold is accessible in the plugin instance
-    3. The threshold is a valid float between 0 and 1
-
-    Args:
-        mock_plugin: The mock plugin instance to test.
-
-    Raises:
-        pytest.Failed: If the NSFW threshold is not properly configured.
-    """
-    await mock_plugin.start()
-
-    # Check threshold is loaded
-    if not hasattr(mock_plugin, "nsfw_threshold"):
-        pytest.fail("NSFW threshold not found in plugin instance")
-
-    # Check threshold is correct type and value
-    if not isinstance(mock_plugin.nsfw_threshold, float):
-        pytest.fail("NSFW threshold should be a float")
+    # Check threshold can be read from config
+    nsfw_threshold = float(mock_plugin.config.get("nsfw_threshold", 0))
+    if nsfw_threshold != 0.5:
+        pytest.fail(f"NSFW threshold from config should be 0.5, got {nsfw_threshold}")
 
     # Check threshold is in valid range
-    if not 0 <= mock_plugin.nsfw_threshold <= 1:
+    if not 0 <= nsfw_threshold <= 1:
         pytest.fail("NSFW threshold should be between 0 and 1")

@@ -18,11 +18,12 @@ Technical Details:
 
 from __future__ import annotations
 
-from asyncio import Lock, Semaphore
+from asyncio import Semaphore
 from functools import lru_cache
+from threading import Lock
 from typing import TYPE_CHECKING, ClassVar
 
-from maubot.plugin_base import Plugin
+from maubot import Plugin
 from mautrix.types import RoomAlias
 
 from nsfwbot.config import Config
@@ -34,48 +35,57 @@ if TYPE_CHECKING:
 class BasePlugin(Plugin):
     """Base plugin providing core Maubot functionality."""
 
-    _semaphore: ClassVar[Semaphore | None] = None
     _lock: ClassVar[Lock] = Lock()
-    actions: ClassVar[dict] = {}
-    nsfw_threshold: ClassVar[float] = 0.5
-    report_to_room: ClassVar[str] = ""
-    via_servers: ClassVar[list[str]] = []
+    _semaphore: ClassVar[Semaphore | None] = None
+    _current_max_jobs: ClassVar[int] = 0
 
     @property
     def semaphore(self) -> Semaphore:
-        """Lazy initialisation of semaphore.
+        """Get or create a semaphore for concurrent job limiting.
 
         Returns:
-            Semaphore: The semaphore instance.
+            A semaphore with the configured number of concurrent jobs.
         """
-        if self._semaphore is None:
-            max_concurrent_jobs = self.config.get("max_concurrent_jobs", 1)
-            self._semaphore = Semaphore(max_concurrent_jobs)
-        return self._semaphore
+        with self._lock:
+            # Check if we need to create or update the semaphore
+            max_jobs = int(self.config.get("max_concurrent_jobs", 1))
+            if self._semaphore is None or self._current_max_jobs != max_jobs:
+                self.log.info("Creating semaphore with %d concurrent jobs", max_jobs)
+                self._semaphore = Semaphore(max_jobs)
+                self._current_max_jobs = max_jobs
+            return self._semaphore
 
     @classmethod
     def get_config_class(cls) -> type[BaseProxyConfig]:
-        """Get the configuration class for the plugin.
+        """Get the configuration class for this plugin.
 
         Returns:
-            Configuration class.
+            The Config class for this plugin.
         """
         return Config
 
     @lru_cache(maxsize=100)
     async def resolve_room_alias(self, room_alias: str) -> str:
-        """Resolve room alias to room ID with caching.
+        """Resolve a room alias to a room ID.
 
         Args:
             room_alias: The room alias to resolve.
 
         Returns:
-            str: The resolved room ID.
+            The resolved room ID or the original alias if resolution fails.
         """
-        if not room_alias.startswith("#"):
+        if not room_alias or not room_alias.startswith(("#", "!")):
             return room_alias
-        info = await self.client.resolve_room_alias(RoomAlias(room_alias))
-        return str(info.room_id)
+
+        try:
+            if room_alias.startswith("!"):
+                return room_alias
+            resolved = await self.client.resolve_room_alias(RoomAlias(room_alias))
+        except Exception:
+            self.log.exception("Failed to resolve room alias %s", room_alias)
+            return room_alias
+        else:
+            return resolved.room_id
 
     async def start(self) -> None:
         """Initialise plugin by loading config."""
@@ -85,15 +95,30 @@ class BasePlugin(Plugin):
                 self.log.error("Plugin not yet configured.")
                 return
 
+            # Load and update config from Maubot
             self.config.load_and_update()
-            self.nsfw_threshold = float(self.config.get("nsfw_threshold", 0.5))
-            self.via_servers = self.config["via_servers"]
-            self.actions = self.config["actions"]
 
-            report_room = str(self.actions.get("report_to_room", ""))
-            if report_room:
-                self.report_to_room = await self.resolve_room_alias(report_room)
+            # Update report room if needed
+            report_to_room = str(self.config.get("report_to_room", ""))
+            if report_to_room:
+                resolved_room = await self.resolve_room_alias(report_to_room)
+                if resolved_room != report_to_room:
+                    self.log.info("Resolved report room %s to %s", report_to_room, resolved_room)
+                    # Update the config with the resolved room ID
+                    self.config["report_to_room"] = resolved_room
+                    self.config.save()
 
-            self.log.info("Loaded base plugin successfully")
+            # Log current configuration
+            actions = self.config.get("actions", {}) or {}
+            self.log.info(
+                "Config loaded: threshold=%.2f, report_to_room=%s, ignore_sfw=%s, redact_nsfw=%s, "
+                "direct_reply=%s, post_errors=%s",
+                float(self.config.get("nsfw_threshold", 0.5)),
+                self.config.get("report_to_room", None) or "(empty)",
+                actions.get("ignore_sfw"),
+                actions.get("redact_nsfw"),
+                actions.get("direct_reply"),
+                actions.get("post_errors"),
+            )
         except Exception:
             self.log.exception("Error during start")
