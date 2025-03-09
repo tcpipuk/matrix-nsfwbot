@@ -10,7 +10,9 @@ run efficiently without requiring a GPU.
 - **Image Analysis**: Detects and analyses images posted in Matrix chats.
 - **Text Message Parsing**: Analyses images embedded in text messages.
 - **Configurable Concurrency**: Controls concurrent image processing tasks.
+- **Configurable Threshold**: Adjust the NSFW detection threshold to avoid false positives.
 - **Custom Actions**: Configurable actions for detected content, including reporting and redacting messages.
+- **Error Reporting**: Option to report processing errors to a moderation room.
 
 ## Requirements
 
@@ -52,7 +54,13 @@ Edit settings in the Maubot admin interface or `base-config.yaml`:
 
 ```yaml
 # Control concurrent processing
-max_concurrent_jobs: 4
+max_concurrent_jobs: 2
+
+# NSFW detection threshold (0.0 to 1.0)
+nsfw_threshold: 0.65
+
+# Central reporting room
+report_to_room: "#moderation:example.org"
 
 # Servers for matrix.to URLs
 via_servers:
@@ -70,8 +78,8 @@ actions:
   # Reply in the source room
   direct_reply: true
 
-  # Central reporting room
-  report_to_room: "#moderation:example.org"
+  # Report processing errors to moderation room
+  post_errors: false
 ```
 
 > **Tip**: Using room IDs (like `!room:server`) is more efficient than aliases (like `#room:server`)
@@ -107,8 +115,10 @@ maubot:
       version: "v0.3.0"
       config:
         max_concurrent_jobs: 4
+        nsfw_threshold: 0.65
         actions:
           redact_nsfw: true
+          post_errors: true
 ```
 
 ## Contributing

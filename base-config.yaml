@@ -1,7 +1,7 @@
 # Number of scanning jobs to run concurrently
 max_concurrent_jobs: 1
 # NSFW detection threshold (0.0 to 1.0, default 0.5)
-nsfw_threshold: 0.5
+nsfw_threshold: 0.65
 # Room to report images to (leave blank for no reporting)
 # e.g. '!room:myserver.local'
 report_to_room: null
