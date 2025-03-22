@@ -20,6 +20,7 @@ run efficiently without requiring a GPU.
 - **Python Dependencies**:
   - `beautifulsoup4`: For HTML message parsing
   - `nsfwdetection`: For image content analysis
+  - `pillow`: To read and convert images
 
 > **Important**: As well as requiring the above plugins, the default
 > Alpine-based Maubot Docker image is not compatible with `nsfwdetection`.
